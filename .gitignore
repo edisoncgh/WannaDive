@@ -49,6 +49,8 @@ RULES.md
 AGENT_HANDOFF.md
 AGENTS.md
 skills-lock.json
+docs/
+DEVELOPMENT.md
 
 # SQLite temp files
 *.db-shm
