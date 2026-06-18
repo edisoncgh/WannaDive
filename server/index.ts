@@ -6,7 +6,20 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import * as db from "./db.js";
 import { orchestrate, AgentEvent } from "./orchestrator.js";
+import { diveOrchestrate } from "./diveOrchestrator.js";
 import { ProviderConfig } from "./llm.js";
+import type { UserLevel } from "./types/dive.js";
+import { registerTool } from "./tools/registry.js";
+import { webSearchAdapter } from "./tools/webSearch.js";
+import { urlReaderAdapter } from "./tools/urlReader.js";
+import { scraplingAdapter } from "./tools/scrapling.js";
+import { agentReachAdapter } from "./tools/agentReach.js";
+
+// 注册工具适配器
+registerTool(webSearchAdapter);
+registerTool(urlReaderAdapter);
+registerTool(scraplingAdapter);
+registerTool(agentReachAdapter);
 
 const execAsync = promisify(exec);
 
@@ -167,7 +180,7 @@ app.delete("/api/sessions/:sessionId", (req, res) => {
 
 // ============= 聊天 API =============
 
-// 发送消息并获取流式响应
+// 发送消息并获取流式响应（旧版，兼容）
 app.post("/api/chat", async (req, res) => {
   const { sessionId, message, provider } = req.body;
 
@@ -268,6 +281,80 @@ app.post("/api/chat", async (req, res) => {
     console.error("[Chat] Error:", err);
     res.write(`data: ${JSON.stringify({ type: "error", message: err.message })}\n\n`);
     res.end();
+  }
+});
+
+// ============= Dive Session API =============
+
+// 创建 Dive Session 并执行（新版，结构化事件流）
+app.post("/api/dive", async (req, res) => {
+  const { message, topic, userLevel, provider } = req.body;
+
+  if (!message) {
+    return res.status(400).json({ error: "消息不能为空" });
+  }
+  if (!provider?.baseUrl || !provider?.apiKey || !provider?.model) {
+    return res.status(400).json({ error: "请先配置 LLM Provider（baseUrl, apiKey, model）" });
+  }
+
+  const providerConfig: ProviderConfig = {
+    baseUrl: provider.baseUrl,
+    apiKey: provider.apiKey,
+    model: provider.model,
+  };
+
+  // 设置 SSE 头
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  try {
+    for await (const event of diveOrchestrate(
+      providerConfig,
+      message,
+      topic ?? "未知",
+      (userLevel as UserLevel) ?? "unknown",
+    )) {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    }
+    res.end();
+  } catch (err: any) {
+    console.error("[Dive] Error:", err);
+    res.write(`data: ${JSON.stringify({ type: "error", diveId: "", message: err.message })}\n\n`);
+    res.end();
+  }
+});
+
+// 获取 Dive 列表
+app.get("/api/dives", (req, res) => {
+  try {
+    const dives = db.getAllDives();
+    res.json({ dives });
+  } catch (error: any) {
+    console.error("[Dives] Error:", error);
+    res.status(500).json({ error: error?.message || "获取 Dive 列表失败" });
+  }
+});
+
+// 获取 Dive 详情
+app.get("/api/dives/:diveId", (req, res) => {
+  try {
+    const { diveId } = req.params;
+    const dive = db.getDive(diveId);
+    if (!dive) {
+      return res.status(404).json({ error: "Dive 不存在" });
+    }
+
+    const tasks = db.getAgentTasksByDive(diveId);
+    const events = db.getAgentEventsByDive(diveId);
+    const evidence = db.getEvidenceByDive(diveId);
+    const reports = db.getAgentReportsByDive(diveId);
+    const guide = db.getDiveGuideByDive(diveId);
+
+    res.json({ dive, tasks, events, evidence, reports, guide });
+  } catch (error: any) {
+    console.error("[Dive] Error:", error);
+    res.status(500).json({ error: error?.message || "获取 Dive 详情失败" });
   }
 });
 
