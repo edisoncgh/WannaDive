@@ -271,10 +271,12 @@ interface DiveGuideViewProps {
 }
 
 export function DiveGuideView({ guide, markdown, onExplore }: DiveGuideViewProps) {
+  if (!guide) return null;
+
   return (
     <div className="space-y-3">
       {/* 一句话抓住本质 */}
-      <EssenceCard essence={guide.essence} />
+      {guide.essence && <EssenceCard essence={guide.essence} />}
 
       {/* 先别管什么 */}
       {guide.dontStartWith.items.length > 0 && (
@@ -287,7 +289,7 @@ export function DiveGuideView({ guide, markdown, onExplore }: DiveGuideViewProps
       )}
 
       {/* 内行视角 */}
-      <InsiderCard insiderView={guide.insiderView} />
+      {guide.insiderView && <InsiderCard insiderView={guide.insiderView} />}
 
       {/* 常见误区 */}
       {guide.commonMisconceptions.length > 0 && (
@@ -295,7 +297,7 @@ export function DiveGuideView({ guide, markdown, onExplore }: DiveGuideViewProps
       )}
 
       {/* 入坑路线 */}
-      <RoadmapCard roadmap={guide.roadmap} />
+      {guide.roadmap && <RoadmapCard roadmap={guide.roadmap} />}
 
       {/* 圈内语境 */}
       {guide.communityContext && (

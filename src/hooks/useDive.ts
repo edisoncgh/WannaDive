@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { ProviderConfig } from './useProvider';
 import type { DiveGuideContent } from '../components/DiveGuide';
 
@@ -88,11 +88,18 @@ export function useDive() {
     agents: new Map(),
     finalContent: null,
     guideId: null,
+    guide: null,
+    criticScore: null,
     error: null,
   });
 
   const [isLoading, setIsLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+
+  // 组件卸载时清理 SSE 流
+  useEffect(() => {
+    return () => { abortRef.current?.abort(); };
+  }, []);
 
   const startDive = useCallback(async (
     message: string,

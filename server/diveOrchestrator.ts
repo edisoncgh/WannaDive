@@ -77,21 +77,21 @@ export async function* diveOrchestrate(
   const now = new Date().toISOString();
   const diveId = uuidv4();
 
-  // ---- 步骤 1：创建 Dive Session ----
-  db.createDive({
-    id: diveId,
-    topic,
-    user_level: userLevel,
-    user_goal: null,
-    domain_type: "general",
-    status: "planning",
-    created_at: now,
-    updated_at: now,
-  });
-
-  yield { type: "dive_created", diveId, topic };
-
   try {
+    // ---- 步骤 1：创建 Dive Session ----
+    db.createDive({
+      id: diveId,
+      topic,
+      user_level: userLevel,
+      user_goal: null,
+      domain_type: "general",
+      status: "planning",
+      created_at: now,
+      updated_at: now,
+    });
+
+    yield { type: "dive_created", diveId, topic };
+
     // ---- 步骤 2：领域分类 ----
     const classification = await classifyDomain(config, topic);
     const playbook = getPlaybook(classification.domainType);
@@ -187,7 +187,12 @@ export async function* diveOrchestrate(
 
       let settled = false;
       settledPromise.then(() => { settled = true; });
+      const timeout = Date.now() + 5 * 60 * 1000; // 5 分钟超时
       while (!settled) {
+        if (Date.now() > timeout) {
+          yield { type: "error", diveId, message: "子 Agent 执行超时（5 分钟）" };
+          return;
+        }
         while (statusQueue.length > 0) {
           yield statusQueue.shift()!;
         }
@@ -577,7 +582,7 @@ async function runCriticAgent(
     const raw = response.content ?? "";
 
     // 解析 JSON
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    const jsonMatch = raw.match(/\{[\s\S]*?\}/);
     if (!jsonMatch) return null;
 
     const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
@@ -694,7 +699,7 @@ function parseGuideJson(content: string): DiveGuideContent | null {
     }
 
     // 尝试从 markdown 中提取 JSON 块
-    const jsonMatch = content.match(/\{[\s\S]*"essence"[\s\S]*"keyConcepts"[\s\S]*\}/);
+    const jsonMatch = content.match(/\{[\s\S]*?"essence"[\s\S]*?"keyConcepts"[\s\S]*?\}/);
     if (jsonMatch) {
       const innerParsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
       if (innerParsed.essence && innerParsed.keyConcepts) {
@@ -705,7 +710,7 @@ function parseGuideJson(content: string): DiveGuideContent | null {
     return null;
   } catch {
     // JSON 解析失败，尝试从 markdown 中提取
-    const jsonMatch = content.match(/\{[\s\S]*"essence"[\s\S]*"keyConcepts"[\s\S]*\}/);
+    const jsonMatch = content.match(/\{[\s\S]*?"essence"[\s\S]*?"keyConcepts"[\s\S]*?\}/);
     if (jsonMatch) {
       try {
         const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
