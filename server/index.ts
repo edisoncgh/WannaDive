@@ -16,6 +16,7 @@ import { scraplingAdapter } from "./tools/scrapling.js";
 import { agentReachAdapter } from "./tools/agentReach.js";
 import { ToolRouter } from "./tools/toolRouter.js";
 import { providerService } from "./services/providerService.js";
+import { questMapService } from "./services/questMapService.js";
 
 // 注册工具适配器
 registerTool(webSearchAdapter);
@@ -625,6 +626,122 @@ app.get("/api/dives/:diveId/map", (req, res) => {
   } catch (error: any) {
     console.error("[Dive Map] Error:", error);
     res.status(500).json({ error: error?.message || "获取 Map 失败" });
+  }
+});
+
+// 获取 Dive 的 Quest Map（结构化节点/边/分支）
+app.get("/api/dives/:diveId/quest-map", (req, res) => {
+  try {
+    const { diveId } = req.params;
+    const dive = db.getDive(diveId);
+    if (!dive) {
+      return res.status(404).json({ error: "Dive 不存在" });
+    }
+    const questMap = questMapService.getByDiveId(diveId);
+    res.json(questMap);
+  } catch (error: any) {
+    console.error("[QuestMap] Error:", error);
+    res.status(500).json({ error: error?.message || "获取 Quest Map 失败" });
+  }
+});
+
+// 继续节点（完成并解锁子节点）
+app.post("/api/dives/:diveId/quest-map/nodes/:nodeId/continue", (req, res) => {
+  try {
+    const { diveId, nodeId } = req.params;
+    const dive = db.getDive(diveId);
+    if (!dive) {
+      return res.status(404).json({ error: "Dive 不存在" });
+    }
+    const result = questMapService.continueNode(nodeId);
+    res.json(result);
+  } catch (error: any) {
+    console.error("[QuestMap Continue] Error:", error);
+    if (error.message === 'Node not found') {
+      return res.status(404).json({ error: error.message });
+    }
+    res.status(500).json({ error: error?.message || "继续节点失败" });
+  }
+});
+
+// Fork 节点（创建分支选择）
+app.post("/api/dives/:diveId/quest-map/nodes/:nodeId/fork", (req, res) => {
+  try {
+    const { diveId, nodeId } = req.params;
+    const { branches } = req.body;
+    const dive = db.getDive(diveId);
+    if (!dive) {
+      return res.status(404).json({ error: "Dive 不存在" });
+    }
+    if (!branches || !Array.isArray(branches) || branches.length === 0) {
+      return res.status(400).json({ error: "branches 数组不能为空" });
+    }
+    const result = questMapService.forkNode(nodeId, branches);
+    res.json({ branches: result });
+  } catch (error: any) {
+    console.error("[QuestMap Fork] Error:", error);
+    if (error.message === 'Node not found') {
+      return res.status(404).json({ error: error.message });
+    }
+    res.status(500).json({ error: error?.message || "Fork 节点失败" });
+  }
+});
+
+// 获取分支列表
+app.get("/api/dives/:diveId/quest-map/branches", (req, res) => {
+  try {
+    const { diveId } = req.params;
+    const dive = db.getDive(diveId);
+    if (!dive) {
+      return res.status(404).json({ error: "Dive 不存在" });
+    }
+    const branches = db.getDiveBranchesByDive(diveId);
+    res.json({ branches });
+  } catch (error: any) {
+    console.error("[QuestMap Branches] Error:", error);
+    res.status(500).json({ error: error?.message || "获取分支失败" });
+  }
+});
+
+// 选择分支
+app.post("/api/dives/:diveId/quest-map/branches/:branchId/select", (req, res) => {
+  try {
+    const { diveId, branchId } = req.params;
+    const dive = db.getDive(diveId);
+    if (!dive) {
+      return res.status(404).json({ error: "Dive 不存在" });
+    }
+    const branch = questMapService.selectBranch(branchId);
+    res.json({ branch });
+  } catch (error: any) {
+    console.error("[QuestMap Select Branch] Error:", error);
+    if (error.message === 'Branch not found' || error.message === 'Branch not found after select') {
+      return res.status(404).json({ error: error.message });
+    }
+    res.status(500).json({ error: error?.message || "选择分支失败" });
+  }
+});
+
+// 更新节点状态
+app.patch("/api/dives/:diveId/quest-map/nodes/:nodeId/status", (req, res) => {
+  try {
+    const { diveId, nodeId } = req.params;
+    const { status } = req.body;
+    const dive = db.getDive(diveId);
+    if (!dive) {
+      return res.status(404).json({ error: "Dive 不存在" });
+    }
+    if (!status) {
+      return res.status(400).json({ error: "status 不能为空" });
+    }
+    const node = questMapService.updateNodeStatus(nodeId, status);
+    res.json({ node });
+  } catch (error: any) {
+    console.error("[QuestMap Update Status] Error:", error);
+    if (error.message === 'Node not found') {
+      return res.status(404).json({ error: error.message });
+    }
+    res.status(500).json({ error: error?.message || "更新节点状态失败" });
   }
 });
 

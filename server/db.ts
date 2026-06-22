@@ -148,6 +148,60 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_dive_guides_dive_id ON dive_guides(dive_id);
 `);
 
+// ============= Quest Map 表 =============
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS dive_map_nodes (
+    id TEXT PRIMARY KEY,
+    dive_id TEXT NOT NULL,
+    parent_node_id TEXT,
+    node_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    status TEXT NOT NULL DEFAULT 'locked',
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    metadata_json TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (dive_id) REFERENCES dives(id) ON DELETE CASCADE,
+    FOREIGN KEY (parent_node_id) REFERENCES dive_map_nodes(id) ON DELETE SET NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS dive_map_edges (
+    id TEXT PRIMARY KEY,
+    dive_id TEXT NOT NULL,
+    from_node_id TEXT NOT NULL,
+    to_node_id TEXT NOT NULL,
+    edge_type TEXT NOT NULL DEFAULT 'prerequisite',
+    label TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (dive_id) REFERENCES dives(id) ON DELETE CASCADE,
+    FOREIGN KEY (from_node_id) REFERENCES dive_map_nodes(id) ON DELETE CASCADE,
+    FOREIGN KEY (to_node_id) REFERENCES dive_map_nodes(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS dive_branches (
+    id TEXT PRIMARY KEY,
+    dive_id TEXT NOT NULL,
+    fork_node_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    is_selected INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (dive_id) REFERENCES dives(id) ON DELETE CASCADE,
+    FOREIGN KEY (fork_node_id) REFERENCES dive_map_nodes(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_dive_map_nodes_dive_id ON dive_map_nodes(dive_id);
+  CREATE INDEX IF NOT EXISTS idx_dive_map_nodes_parent ON dive_map_nodes(parent_node_id);
+  CREATE INDEX IF NOT EXISTS idx_dive_map_edges_dive_id ON dive_map_edges(dive_id);
+  CREATE INDEX IF NOT EXISTS idx_dive_map_edges_from ON dive_map_edges(from_node_id);
+  CREATE INDEX IF NOT EXISTS idx_dive_map_edges_to ON dive_map_edges(to_node_id);
+  CREATE INDEX IF NOT EXISTS idx_dive_branches_dive_id ON dive_branches(dive_id);
+  CREATE INDEX IF NOT EXISTS idx_dive_branches_fork ON dive_branches(fork_node_id);
+`);
+
 // ============= Provider Profiles 表 =============
 
 db.exec(`
@@ -783,6 +837,150 @@ export function getSessionsWithDives(): (DbSession & { dive?: DbDive })[] {
 
 export function updateSessionLatestDive(sessionId: string, diveId: string): boolean {
   const result = db.prepare('UPDATE sessions SET latest_dive_id = ?, updated_at = ? WHERE id = ?').run(diveId, new Date().toISOString(), sessionId);
+  return result.changes > 0;
+}
+
+// ============= Quest Map 类型与操作 =============
+
+export type QuestNodeStatus = 'locked' | 'available' | 'in_progress' | 'completed' | 'fork_available' | 'forked';
+export type QuestNodeType = 'foundation' | 'concept' | 'practice' | 'gear' | 'technical' | 'market' | 'community' | 'advanced' | 'fork';
+
+export interface DbDiveMapNode {
+  id: string;
+  dive_id: string;
+  parent_node_id: string | null;
+  node_type: string;
+  title: string;
+  description: string | null;
+  status: string;
+  sort_order: number;
+  metadata_json: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DbDiveMapEdge {
+  id: string;
+  dive_id: string;
+  from_node_id: string;
+  to_node_id: string;
+  edge_type: string;
+  label: string | null;
+  created_at: string;
+}
+
+export interface DbDiveBranch {
+  id: string;
+  dive_id: string;
+  fork_node_id: string;
+  name: string;
+  description: string | null;
+  is_selected: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// ---- Dive Map Node CRUD ----
+
+export function createDiveMapNode(node: DbDiveMapNode): DbDiveMapNode {
+  const stmt = db.prepare(`
+    INSERT INTO dive_map_nodes (id, dive_id, parent_node_id, node_type, title, description, status, sort_order, metadata_json, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  stmt.run(node.id, node.dive_id, node.parent_node_id, node.node_type, node.title, node.description, node.status, node.sort_order, node.metadata_json, node.created_at, node.updated_at);
+  return node;
+}
+
+export function getDiveMapNodesByDive(diveId: string): DbDiveMapNode[] {
+  return db.prepare('SELECT * FROM dive_map_nodes WHERE dive_id = ? ORDER BY sort_order ASC').all(diveId) as DbDiveMapNode[];
+}
+
+export function getDiveMapNode(id: string): DbDiveMapNode | undefined {
+  return db.prepare('SELECT * FROM dive_map_nodes WHERE id = ?').get(id) as DbDiveMapNode | undefined;
+}
+
+export function updateDiveMapNodeStatus(id: string, status: string): boolean {
+  const result = db.prepare('UPDATE dive_map_nodes SET status = ?, updated_at = ? WHERE id = ?').run(status, new Date().toISOString(), id);
+  return result.changes > 0;
+}
+
+export function updateDiveMapNode(id: string, updates: Partial<Pick<DbDiveMapNode, 'title' | 'description' | 'status' | 'sort_order' | 'metadata_json' | 'parent_node_id'>>): boolean {
+  const fields: string[] = [];
+  const values: any[] = [];
+
+  if (updates.title !== undefined) { fields.push('title = ?'); values.push(updates.title); }
+  if (updates.description !== undefined) { fields.push('description = ?'); values.push(updates.description); }
+  if (updates.status !== undefined) { fields.push('status = ?'); values.push(updates.status); }
+  if (updates.sort_order !== undefined) { fields.push('sort_order = ?'); values.push(updates.sort_order); }
+  if (updates.metadata_json !== undefined) { fields.push('metadata_json = ?'); values.push(updates.metadata_json); }
+  if (updates.parent_node_id !== undefined) { fields.push('parent_node_id = ?'); values.push(updates.parent_node_id); }
+
+  if (fields.length === 0) return false;
+
+  fields.push('updated_at = ?');
+  values.push(new Date().toISOString());
+  values.push(id);
+
+  const result = db.prepare(`UPDATE dive_map_nodes SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+  return result.changes > 0;
+}
+
+export function deleteDiveMapNode(id: string): boolean {
+  const result = db.prepare('DELETE FROM dive_map_nodes WHERE id = ?').run(id);
+  return result.changes > 0;
+}
+
+// ---- Dive Map Edge CRUD ----
+
+export function createDiveMapEdge(edge: DbDiveMapEdge): DbDiveMapEdge {
+  const stmt = db.prepare(`
+    INSERT INTO dive_map_edges (id, dive_id, from_node_id, to_node_id, edge_type, label, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+  stmt.run(edge.id, edge.dive_id, edge.from_node_id, edge.to_node_id, edge.edge_type, edge.label, edge.created_at);
+  return edge;
+}
+
+export function getDiveMapEdgesByDive(diveId: string): DbDiveMapEdge[] {
+  return db.prepare('SELECT * FROM dive_map_edges WHERE dive_id = ?').all(diveId) as DbDiveMapEdge[];
+}
+
+export function deleteDiveMapEdge(id: string): boolean {
+  const result = db.prepare('DELETE FROM dive_map_edges WHERE id = ?').run(id);
+  return result.changes > 0;
+}
+
+// ---- Dive Branch CRUD ----
+
+export function createDiveBranch(branch: DbDiveBranch): DbDiveBranch {
+  const stmt = db.prepare(`
+    INSERT INTO dive_branches (id, dive_id, fork_node_id, name, description, is_selected, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  stmt.run(branch.id, branch.dive_id, branch.fork_node_id, branch.name, branch.description, branch.is_selected, branch.created_at, branch.updated_at);
+  return branch;
+}
+
+export function getDiveBranchesByDive(diveId: string): DbDiveBranch[] {
+  return db.prepare('SELECT * FROM dive_branches WHERE dive_id = ? ORDER BY created_at ASC').all(diveId) as DbDiveBranch[];
+}
+
+export function getDiveBranchesByForkNode(forkNodeId: string): DbDiveBranch[] {
+  return db.prepare('SELECT * FROM dive_branches WHERE fork_node_id = ? ORDER BY created_at ASC').all(forkNodeId) as DbDiveBranch[];
+}
+
+export function selectDiveBranch(branchId: string): boolean {
+  const branch = db.prepare('SELECT * FROM dive_branches WHERE id = ?').get(branchId) as DbDiveBranch | undefined;
+  if (!branch) return false;
+
+  const now = new Date().toISOString();
+  db.prepare('UPDATE dive_branches SET is_selected = 0, updated_at = ? WHERE fork_node_id = ?').run(now, branch.fork_node_id);
+  const result = db.prepare('UPDATE dive_branches SET is_selected = 1, updated_at = ? WHERE id = ?').run(now, branchId);
+  return result.changes > 0;
+}
+
+export function deleteDiveBranch(id: string): boolean {
+  const result = db.prepare('DELETE FROM dive_branches WHERE id = ?').run(id);
   return result.changes > 0;
 }
 
