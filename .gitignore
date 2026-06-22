@@ -42,6 +42,7 @@ server/data/
 # Agent / AI coding tools
 .agents/
 .claude/
+.mimocode/
 .memory/
 .test/
 CLAUDE.md
