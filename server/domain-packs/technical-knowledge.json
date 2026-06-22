@@ -1,0 +1,101 @@
+{
+  "id": "technical_knowledge",
+  "displayName": "技术知识",
+  "aliases": ["tech", "programming", "coding", "技术", "编程", "开发", "AI", "机器学习", "前端", "后端", "数据", "工程"],
+  "domainType": "technical_knowledge",
+
+  "coreMentalModels": [
+    "学习金字塔——输出倒逼输入，光看不练等于没学",
+    "T 型人才模型——先广后深，不要一开始就钻进一个框架",
+    "心智模型迁移——用已有知识类比新概念，降低认知负荷",
+    "费曼学习法——能给外行讲明白才算真懂",
+    "80/20 法则——20% 的核心概念解决 80% 的问题"
+  ],
+
+  "mustCover": [
+    "这个技术领域解决什么问题（本质，不是功能列表）",
+    "核心概念速查表（5-8 个，带通俗解释）",
+    "最小可行环境搭建（hello world 能跑起来）",
+    "该领域的主流技术栈/工具链全景图",
+    "新手第一周的学习路径（具体到每天做什么）",
+    "官方文档和社区资源导航"
+  ],
+
+  "commonPitfalls": [
+    "框架先行——还没理解语言基础就学框架",
+    "教程地狱——一直在跟教程，从不自己写项目",
+    "工具焦虑——花大量时间选编辑器/配环境，而不是学核心概念",
+    "完美主义——想一次学到完美再动手，结果永远不开始",
+    "孤军奋战——不加社区、不看源码、不读文档，只看二手教程"
+  ],
+
+  "dontStartWith": [
+    "设计模式和架构——太抽象，新手无法建立直觉",
+    "性能优化——过早优化是万恶之源",
+    "底层原理（编译器、内存管理）——先会用再理解",
+    "多个框架/语言对比——容易制造选择焦虑",
+    "最佳实践争论——tab vs space 这种先别管"
+  ],
+
+  "preferredAgents": [
+    "concept_translator",
+    "insider_mentor",
+    "research_librarian",
+    "reality_checker"
+  ],
+
+  "preferredTools": [
+    "webSearch",
+    "urlReader"
+  ],
+
+  "sourcePolicy": {
+    "official": [
+      "官方文档（永远是第一手来源）",
+      "官方教程和 Getting Started",
+      "官方博客和 Release Notes"
+    ],
+    "community": [
+      "Stack Overflow（具体报错和解决方案）",
+      "Reddit 相关 subreddit",
+      "Dev.to / Medium 技术文章",
+      "V2EX / 掘金 / 思否（中文社区）"
+    ],
+    "github": [
+      "Awesome 列表（领域全景图）",
+      "高 Star 项目源码（学习最佳实践）",
+      "Issues 和 Discussions（了解真实问题）"
+    ],
+    "video": [
+      "YouTube 技术频道（Traversy Media, Fireship, The Primeagen）",
+      "B 站技术 UP（中文教程）",
+      "Udemy / Coursera 课程（系统学习）"
+    ],
+    "academic": [
+      "论文只推荐综述类（Survey），不要上来就推原始论文"
+    ]
+  },
+
+  "guideOverrides": {
+    "extraSections": [
+      "environmentSetup——环境搭建步骤",
+      "techStackMap——技术栈全景图",
+      "firstProject——第一个练手项目建议"
+    ],
+    "mapTemplates": [
+      "foundation: 环境搭建 + 核心概念",
+      "core: 语言/框架基础 + 第一个项目",
+      "advanced: 设计模式 + 源码阅读",
+      "optional: 性能优化 + 社区贡献"
+    ]
+  },
+
+  "criticRubric": [
+    "是否有明确的'第一周学习路径'，而不是泛泛而谈",
+    "是否区分了'必须先学'和'可以以后再学'的内容",
+    "是否推荐了可运行的代码示例/练手项目",
+    "是否标注了官方文档链接（第一手来源）",
+    "是否避免了框架/语言宗教战争式的偏见",
+    "是否给出了'卡住时怎么办'的具体建议"
+  ]
+}
