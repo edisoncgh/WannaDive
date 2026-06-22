@@ -7,6 +7,7 @@ import type { DiveGuideContent } from '../components/DiveGuide';
 // ============================================================
 
 export type DiveAgentEvent =
+  | { type: 'init'; sessionId: string }
   | { type: 'dive_created'; diveId: string; topic: string }
   | { type: 'host_question'; diveId: string; questions: string[] }
   | { type: 'plan_created'; diveId: string; plan: DivePlan }
@@ -63,6 +64,7 @@ export interface AgentTaskState {
 }
 
 export interface DiveState {
+  sessionId: string | null;
   diveId: string | null;
   topic: string;
   status: 'idle' | 'clarifying' | 'planning' | 'executing' | 'synthesizing' | 'completed' | 'failed';
@@ -81,6 +83,7 @@ export interface DiveState {
 
 export function useDive() {
   const [diveState, setDiveState] = useState<DiveState>({
+    sessionId: null,
     diveId: null,
     topic: '',
     status: 'idle',
@@ -111,6 +114,7 @@ export function useDive() {
 
     // 重置状态
     setDiveState({
+      sessionId: null,
       diveId: null,
       topic,
       status: 'planning',
@@ -214,6 +218,10 @@ export function useDive() {
       const next = { ...prev };
 
       switch (event.type) {
+        case 'init':
+          next.sessionId = event.sessionId;
+          break;
+
         case 'dive_created':
           next.diveId = event.diveId;
           next.topic = event.topic;
@@ -319,6 +327,7 @@ export function useDive() {
 
   const resetDive = useCallback(() => {
     setDiveState({
+      sessionId: null,
       diveId: null,
       topic: '',
       status: 'idle',
@@ -332,11 +341,73 @@ export function useDive() {
     });
   }, []);
 
+  const restoreDive = useCallback(async (sessionId: string) => {
+    setIsLoading(true);
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/dive`);
+      if (!res.ok) return false;
+
+      const data = await res.json();
+      const { dive, tasks, guide } = data;
+      if (!dive) return false;
+
+      const agents = new Map<string, AgentTaskState>();
+      for (const t of tasks ?? []) {
+        const isCompleted = t.status === 'completed';
+        agents.set(t.id, {
+          taskId: t.id,
+          agentId: t.agent_id,
+          title: t.title,
+          status: isCompleted ? 'completed' : (t.status as AgentTaskState['status']),
+          message: isCompleted ? '报告完成' : '',
+          progress: isCompleted ? 100 : (t.progress ?? 0),
+          notes: [],
+        });
+      }
+
+      let guideContent: DiveGuideContent | null = null;
+      if (guide?.guide_json) {
+        try {
+          guideContent = typeof guide.guide_json === 'string'
+            ? JSON.parse(guide.guide_json)
+            : guide.guide_json;
+        } catch {
+          // ignore
+        }
+      }
+
+      const diveStatus = dive.status === 'completed' ? 'completed'
+        : dive.status === 'failed' ? 'failed'
+        : 'completed'; // historical dives default to completed
+
+      setDiveState({
+        sessionId,
+        diveId: dive.id,
+        topic: dive.topic,
+        status: diveStatus,
+        plan: null,
+        agents,
+        finalContent: guide?.markdown ?? null,
+        guideId: guide?.id ?? null,
+        guide: guideContent,
+        criticScore: null,
+        error: null,
+      });
+      return true;
+    } catch (err) {
+      console.error('[Dive] restore failed:', err);
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
   return {
     diveState,
     isLoading,
     startDive,
     stopDive,
     resetDive,
+    restoreDive,
   };
 }

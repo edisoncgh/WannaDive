@@ -37,6 +37,7 @@ function AppContent() {
   const {
     sessions,
     setSessions,
+    sessionList,
     currentSessionId,
     setCurrentSessionId,
     currentSession,
@@ -140,6 +141,7 @@ function AppContent() {
       {/* 侧边栏 */}
       <Sidebar
         sessions={sessions}
+        sessionList={sessionList}
         currentSessionId={currentSessionId}
         isSettingsPage={isSettingsPage}
         sidebarOpen={sidebarOpen}
@@ -177,6 +179,8 @@ function AppContent() {
         ) : (
           <ChatPage
             currentSession={currentSession}
+            sessionList={sessionList}
+            currentSessionId={currentSessionId}
             provider={provider}
             isProviderConfigured={isProviderConfigured}
             agentEvents={agentEvents}

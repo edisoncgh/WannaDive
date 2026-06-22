@@ -73,6 +73,7 @@ export async function* diveOrchestrate(
   userMessage: string,
   topic: string,
   userLevel: UserLevel = "unknown",
+  sessionId?: string,
 ): AsyncGenerator<DiveAgentEvent> {
   const now = new Date().toISOString();
   const diveId = uuidv4();
@@ -86,9 +87,15 @@ export async function* diveOrchestrate(
       user_goal: null,
       domain_type: "general",
       status: "planning",
+      session_id: sessionId ?? null,
       created_at: now,
       updated_at: now,
     });
+
+    // 如果有 sessionId，链接 Dive 到 Session
+    if (sessionId) {
+      db.linkDiveToSession(sessionId, diveId);
+    }
 
     yield { type: "dive_created", diveId, topic };
 
@@ -333,6 +340,21 @@ export async function* diveOrchestrate(
 
       db.updateDiveStatus(diveId, "completed");
 
+      // 保存 guide 为 assistant message
+      if (sessionId) {
+        db.createMessage({
+          id: uuidv4(),
+          session_id: sessionId,
+          role: 'assistant',
+          content: finalContent,
+          model: null,
+          created_at: new Date().toISOString(),
+          tool_calls: null,
+          metadata_json: JSON.stringify({ diveId, guideId }),
+        });
+        db.linkDiveToSession(sessionId, diveId);
+      }
+
       yield {
         type: "final_ready",
         diveId,
@@ -357,6 +379,21 @@ export async function* diveOrchestrate(
     });
 
     db.updateDiveStatus(diveId, "completed");
+
+    // 保存 guide 为 assistant message
+    if (sessionId) {
+      db.createMessage({
+        id: uuidv4(),
+        session_id: sessionId,
+        role: 'assistant',
+        content: directContent,
+        model: null,
+        created_at: new Date().toISOString(),
+        tool_calls: null,
+        metadata_json: JSON.stringify({ diveId, guideId }),
+      });
+      db.linkDiveToSession(sessionId, diveId);
+    }
 
     yield { type: "final_ready", diveId, guideId, content: directContent };
     yield { type: "done" };

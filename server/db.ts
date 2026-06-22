@@ -165,12 +165,44 @@ try {
   // 忽略错误（列可能已存在）
 }
 
+// 数据库迁移：Session 与 Dive 绑定
+try {
+  // dives 表添加 session_id
+  const divesInfo = db.prepare("PRAGMA table_info(dives)").all() as Array<{ name: string }>;
+  if (!divesInfo.some(col => col.name === 'session_id')) {
+    db.exec("ALTER TABLE dives ADD COLUMN session_id TEXT");
+    console.log("[DB] Added session_id column to dives table");
+  }
+
+  // sessions 表添加 kind 和 latest_dive_id
+  const sessionsInfo = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
+  if (!sessionsInfo.some(col => col.name === 'kind')) {
+    db.exec("ALTER TABLE sessions ADD COLUMN kind TEXT DEFAULT 'chat'");
+    console.log("[DB] Added kind column to sessions table");
+  }
+  if (!sessionsInfo.some(col => col.name === 'latest_dive_id')) {
+    db.exec("ALTER TABLE sessions ADD COLUMN latest_dive_id TEXT");
+    console.log("[DB] Added latest_dive_id column to sessions table");
+  }
+
+  // messages 表添加 metadata_json
+  const messagesInfo = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
+  if (!messagesInfo.some(col => col.name === 'metadata_json')) {
+    db.exec("ALTER TABLE messages ADD COLUMN metadata_json TEXT");
+    console.log("[DB] Added metadata_json column to messages table");
+  }
+} catch (e) {
+  // 忽略错误（列可能已存在）
+}
+
 // 类型定义
 export interface DbSession {
   id: string;
   title: string;
   model: string;
   sdk_session_id: string | null;
+  kind: string;
+  latest_dive_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -183,6 +215,7 @@ export interface DbMessage {
   model: string | null;
   created_at: string;
   tool_calls: string | null;
+  metadata_json: string | null;
 }
 
 // ============= 会话操作 =============
@@ -202,15 +235,15 @@ export function getSession(id: string): DbSession | undefined {
 // 创建会话
 export function createSession(session: DbSession): DbSession {
   const stmt = db.prepare(`
-    INSERT INTO sessions (id, title, model, sdk_session_id, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO sessions (id, title, model, sdk_session_id, kind, latest_dive_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  stmt.run(session.id, session.title, session.model, session.sdk_session_id, session.created_at, session.updated_at);
+  stmt.run(session.id, session.title, session.model, session.sdk_session_id, session.kind, session.latest_dive_id, session.created_at, session.updated_at);
   return session;
 }
 
 // 更新会话
-export function updateSession(id: string, updates: Partial<Pick<DbSession, 'title' | 'model' | 'sdk_session_id'>>): boolean {
+export function updateSession(id: string, updates: Partial<Pick<DbSession, 'title' | 'model' | 'sdk_session_id' | 'kind' | 'latest_dive_id'>>): boolean {
   const fields: string[] = [];
   const values: any[] = [];
   
@@ -225,6 +258,14 @@ export function updateSession(id: string, updates: Partial<Pick<DbSession, 'titl
   if (updates.sdk_session_id !== undefined) {
     fields.push('sdk_session_id = ?');
     values.push(updates.sdk_session_id);
+  }
+  if (updates.kind !== undefined) {
+    fields.push('kind = ?');
+    values.push(updates.kind);
+  }
+  if (updates.latest_dive_id !== undefined) {
+    fields.push('latest_dive_id = ?');
+    values.push(updates.latest_dive_id);
   }
   
   if (fields.length === 0) return false;
@@ -256,8 +297,8 @@ export function getMessagesBySession(sessionId: string): DbMessage[] {
 // 创建消息
 export function createMessage(message: DbMessage): DbMessage {
   const stmt = db.prepare(`
-    INSERT INTO messages (id, session_id, role, content, model, created_at, tool_calls)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO messages (id, session_id, role, content, model, created_at, tool_calls, metadata_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
   stmt.run(
     message.id,
@@ -266,7 +307,8 @@ export function createMessage(message: DbMessage): DbMessage {
     message.content,
     message.model,
     message.created_at,
-    message.tool_calls
+    message.tool_calls,
+    message.metadata_json
   );
   
   // 更新会话的 updated_at
@@ -309,13 +351,13 @@ export function deleteMessage(id: string): boolean {
 // 批量创建消息（用于保存对话）
 export function createMessages(messages: DbMessage[]): void {
   const stmt = db.prepare(`
-    INSERT INTO messages (id, session_id, role, content, model, created_at, tool_calls)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO messages (id, session_id, role, content, model, created_at, tool_calls, metadata_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
   
   const insertMany = db.transaction((msgs: DbMessage[]) => {
     for (const msg of msgs) {
-      stmt.run(msg.id, msg.session_id, msg.role, msg.content, msg.model, msg.created_at, msg.tool_calls);
+      stmt.run(msg.id, msg.session_id, msg.role, msg.content, msg.model, msg.created_at, msg.tool_calls, msg.metadata_json);
     }
   });
   
@@ -337,6 +379,7 @@ export interface DbDive {
   user_goal: string | null;
   domain_type: string;
   status: string;
+  session_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -419,10 +462,10 @@ export interface DbAppSetting {
 
 export function createDive(dive: DbDive): DbDive {
   const stmt = db.prepare(`
-    INSERT INTO dives (id, topic, user_level, user_goal, domain_type, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO dives (id, topic, user_level, user_goal, domain_type, status, session_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  stmt.run(dive.id, dive.topic, dive.user_level, dive.user_goal, dive.domain_type, dive.status, dive.created_at, dive.updated_at);
+  stmt.run(dive.id, dive.topic, dive.user_level, dive.user_goal, dive.domain_type, dive.status, dive.session_id, dive.created_at, dive.updated_at);
   return dive;
 }
 
@@ -637,6 +680,44 @@ export function setAppSetting(key: string, valueJson: string): DbAppSetting {
 export function deleteAppSetting(key: string): boolean {
   const stmt = db.prepare('DELETE FROM app_settings WHERE key = ?');
   const result = stmt.run(key);
+  return result.changes > 0;
+}
+
+// ---- Session 与 Dive 绑定 ----
+
+export function getSessionWithDive(sessionId: string): (DbSession & { dive?: DbDive }) | undefined {
+  const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as DbSession | undefined;
+  if (!session) return undefined;
+
+  if (session.latest_dive_id) {
+    const dive = db.prepare('SELECT * FROM dives WHERE id = ?').get(session.latest_dive_id) as DbDive | undefined;
+    return { ...session, dive };
+  }
+  return session;
+}
+
+export function getDiveBySessionId(sessionId: string): DbDive | undefined {
+  return db.prepare('SELECT * FROM dives WHERE session_id = ? ORDER BY created_at DESC LIMIT 1').get(sessionId) as DbDive | undefined;
+}
+
+export function linkDiveToSession(sessionId: string, diveId: string): void {
+  db.prepare('UPDATE dives SET session_id = ? WHERE id = ?').run(sessionId, diveId);
+  db.prepare('UPDATE sessions SET latest_dive_id = ?, updated_at = ? WHERE id = ?').run(diveId, new Date().toISOString(), sessionId);
+}
+
+export function getSessionsWithDives(): (DbSession & { dive?: DbDive })[] {
+  const sessions = db.prepare('SELECT * FROM sessions ORDER BY updated_at DESC').all() as DbSession[];
+  return sessions.map(session => {
+    if (session.latest_dive_id) {
+      const dive = db.prepare('SELECT * FROM dives WHERE id = ?').get(session.latest_dive_id) as DbDive | undefined;
+      return { ...session, dive };
+    }
+    return session;
+  });
+}
+
+export function updateSessionLatestDive(sessionId: string, diveId: string): boolean {
+  const result = db.prepare('UPDATE sessions SET latest_dive_id = ?, updated_at = ? WHERE id = ?').run(diveId, new Date().toISOString(), sessionId);
   return result.changes > 0;
 }
 

@@ -9,9 +9,12 @@ import { AgentMissionBoard } from '../components/AgentMissionBoard';
 import { DiveGuideView, DiveGuideFallback } from '../components/DiveGuide';
 import { ProviderConfig } from '../hooks/useProvider';
 import { useDive } from '../hooks/useDive';
+import { SessionListItem } from '../hooks/useSessions';
 
 interface ChatPageProps {
   currentSession: Session | undefined;
+  sessionList: SessionListItem[];
+  currentSessionId: string | null;
   provider: ProviderConfig | null;
   isProviderConfigured: boolean;
   agentEvents: AgentEvent[];
@@ -54,6 +57,8 @@ function buildFirstMessage(topic: string, level: KnowledgeLevel): string {
 
 export function ChatPage({
   currentSession,
+  sessionList,
+  currentSessionId,
   provider,
   isProviderConfigured,
   agentEvents,
@@ -67,7 +72,33 @@ export function ChatPage({
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Dive Session hook
-  const { diveState, isLoading: diveLoading, startDive, stopDive, resetDive } = useDive();
+  const { diveState, isLoading: diveLoading, startDive, stopDive, resetDive, restoreDive } = useDive();
+
+  // 当切换到历史 Dive Session 时，恢复 dive 状态
+  const restoredSessionRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!currentSessionId) {
+      resetDive();
+      restoredSessionRef.current = null;
+      return;
+    }
+    if (restoredSessionRef.current === currentSessionId) return;
+    const listItem = sessionList.find(s => s.id === currentSessionId);
+    if (listItem?.kind === 'dive') {
+      restoredSessionRef.current = currentSessionId;
+      restoreDive(currentSessionId);
+    } else {
+      resetDive();
+      restoredSessionRef.current = null;
+    }
+  }, [currentSessionId, sessionList, restoreDive, resetDive]);
+
+  // 当 Dive 创建了 session，导航到该 session
+  useEffect(() => {
+    if (diveState.sessionId) {
+      navigate(`/chat/${diveState.sessionId}`, { replace: true });
+    }
+  }, [diveState.sessionId, navigate]);
 
   // 新对话页面状态
   const [newChatTopic, setNewChatTopic] = useState('');
@@ -146,63 +177,55 @@ export function ChatPage({
     <>
       {/* 消息区域 */}
       <div className="flex-1 overflow-y-auto p-6">
-        {showNewChatView ? (
-          <>
-            {/* Dive 进行中时隐藏表单，只显示 Mission Board */}
-            {!showDiveBoard && (
-              <NewChatView
-                newChatTopic={newChatTopic}
-                newChatLevel={newChatLevel}
-                onSetTopic={setNewChatTopic}
-                onSetLevel={setNewChatLevel}
-                onStart={handleStartRush}
-                canStart={canStart}
-              />
+        {showDiveBoard ? (
+          <div className="max-w-3xl mx-auto">
+            <AgentMissionBoard diveState={diveState} />
+
+            {/* Dive 完成后显示最终指南 */}
+            {diveState.status === 'completed' && diveState.finalContent && (
+              diveState.guide
+                ? <DiveGuideView
+                    guide={diveState.guide}
+                    markdown={diveState.finalContent}
+                    onExplore={(prompt) => {
+                      if (provider) {
+                        resetDive();
+                        startDive(prompt, prompt, 'unknown', provider);
+                      }
+                    }}
+                  />
+                : <DiveGuideFallback content={diveState.finalContent} />
             )}
 
-            {/* Dive Mission Board */}
-            {showDiveBoard && (
-              <div className="max-w-3xl mx-auto">
-                <AgentMissionBoard diveState={diveState} />
-
-                {/* Dive 完成后显示最终指南 */}
-                {diveState.status === 'completed' && diveState.finalContent && (
-                  diveState.guide
-                    ? <DiveGuideView
-                        guide={diveState.guide}
-                        markdown={diveState.finalContent}
-                        onExplore={(prompt) => {
-                          if (provider) {
-                            resetDive();
-                            startDive(prompt, prompt, 'unknown', provider);
-                          }
-                        }}
-                      />
-                    : <DiveGuideFallback content={diveState.finalContent} />
-                )}
-
-                {/* Dive 完成后显示「再来一次」按钮 */}
-                {diveState.status === 'completed' && (
-                  <div className="mt-4 text-center">
-                    <button
-                      className="px-4 py-2 text-sm rounded-md"
-                      style={{
-                        backgroundColor: 'var(--td-brand-color)',
-                        color: '#fff',
-                        border: 'none',
-                        cursor: 'pointer',
-                      }}
-                      onClick={() => {
-                        resetDive();
-                      }}
-                    >
-                      再来一次入坑
-                    </button>
-                  </div>
-                )}
+            {/* Dive 完成后显示「再来一次」按钮 */}
+            {diveState.status === 'completed' && (
+              <div className="mt-4 text-center">
+                <button
+                  className="px-4 py-2 text-sm rounded-md"
+                  style={{
+                    backgroundColor: 'var(--td-brand-color)',
+                    color: '#fff',
+                    border: 'none',
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => {
+                    resetDive();
+                  }}
+                >
+                  再来一次入坑
+                </button>
               </div>
             )}
-          </>
+          </div>
+        ) : showNewChatView ? (
+          <NewChatView
+            newChatTopic={newChatTopic}
+            newChatLevel={newChatLevel}
+            onSetTopic={setNewChatTopic}
+            onSetLevel={setNewChatLevel}
+            onStart={handleStartRush}
+            canStart={canStart}
+          />
         ) : (
           <>
             {/* Agent 协作过程 */}

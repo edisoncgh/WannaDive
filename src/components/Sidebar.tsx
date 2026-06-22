@@ -1,12 +1,14 @@
-import { Button, Tooltip } from 'tdesign-react';
+import { Button, Tooltip, Tag } from 'tdesign-react';
 import { AddIcon, DeleteIcon, SettingIcon } from 'tdesign-icons-react';
-import { Bot } from 'lucide-react';
+import { Bot, Compass } from 'lucide-react';
 import { APP_CONFIG } from '../config';
 import { Session, Agent } from '../types';
 import { ICON_MAP } from '../utils/iconMap';
+import { SessionListItem } from '../hooks/useSessions';
 
 interface SidebarProps {
   sessions: Session[];
+  sessionList: SessionListItem[];
   currentSessionId: string | null;
   isSettingsPage: boolean;
   sidebarOpen: boolean;
@@ -20,6 +22,7 @@ interface SidebarProps {
 
 export function Sidebar({
   sessions,
+  sessionList,
   currentSessionId,
   isSettingsPage,
   sidebarOpen,
@@ -70,40 +73,54 @@ export function Sidebar({
 
       {/* 会话列表 */}
       <div className="flex-1 overflow-y-auto p-2 space-y-1">
-        {sessions.map(session => {
-          const sessionAgent = session.agentId ? getAgent(session.agentId) : getAgent('default');
-          const AgentIcon = ICON_MAP[sessionAgent?.icon || 'Bot'] || Bot;
+        {sessionList.map(item => {
+          const isDive = item.kind === 'dive';
+          const sessionAgent = !isDive ? (() => {
+            const session = sessions.find(s => s.id === item.id);
+            return session?.agentId ? getAgent(session.agentId) : getAgent('default');
+          })() : undefined;
+          const AgentIcon = isDive ? Compass : (ICON_MAP[sessionAgent?.icon || 'Bot'] || Bot);
           return (
             <div 
-              key={session.id}
+              key={item.id}
               className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer transition-colors duration-200 group"
               style={{
-                backgroundColor: session.id === currentSessionId && !isSettingsPage
+                backgroundColor: item.id === currentSessionId && !isSettingsPage
                   ? 'var(--td-brand-color-light)' 
                   : 'transparent',
-                color: session.id === currentSessionId && !isSettingsPage
+                color: item.id === currentSessionId && !isSettingsPage
                   ? 'var(--td-brand-color)' 
                   : 'var(--td-text-color-secondary)'
               }}
-              onClick={() => onSelectSession(session.id)}
+              onClick={() => onSelectSession(item.id)}
               onMouseEnter={(e) => {
-                if (session.id !== currentSessionId || isSettingsPage) {
+                if (item.id !== currentSessionId || isSettingsPage) {
                   e.currentTarget.style.backgroundColor = 'var(--td-bg-color-component-hover)';
                 }
               }}
               onMouseLeave={(e) => {
-                if (session.id !== currentSessionId || isSettingsPage) {
+                if (item.id !== currentSessionId || isSettingsPage) {
                   e.currentTarget.style.backgroundColor = 'transparent';
                 }
               }}
             >
               <div 
                 className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center"
-                style={{ backgroundColor: sessionAgent?.color || 'var(--td-brand-color)' }}
+                style={{ backgroundColor: isDive ? 'var(--td-success-color)' : (sessionAgent?.color || 'var(--td-brand-color)') }}
               >
                 <AgentIcon size={12} color="white" />
               </div>
-              <span className="flex-1 truncate text-sm">{session.title}</span>
+              <div className="flex-1 min-w-0">
+                <span className="truncate text-sm block">{item.title}</span>
+                {isDive && item.dive && (
+                  <span className="text-xs opacity-60 truncate block">
+                    {item.dive.topic}
+                  </span>
+                )}
+              </div>
+              {isDive && item.dive?.status === 'completed' && (
+                <Tag theme="success" size="small" variant="light">完成</Tag>
+              )}
               <Tooltip content="删除会话">
                 <Button
                   className="opacity-0 group-hover:opacity-100 transition-opacity"
@@ -113,7 +130,7 @@ export function Sidebar({
                   icon={<DeleteIcon />}
                   onClick={(e) => {
                     e.stopPropagation();
-                    onDeleteSession(session.id);
+                    onDeleteSession(item.id);
                   }}
                 />
               </Tooltip>

@@ -81,15 +81,15 @@ app.get("/api/models", async (req, res) => {
 // 获取所有会话（包含消息数量）
 app.get("/api/sessions", (req, res) => {
   try {
-    const sessions = db.getAllSessions();
-    const sessionsWithMessages = sessions.map(session => {
+    const sessions = db.getSessionsWithDives();
+    const sessionsWithInfo = sessions.map(session => {
       const messages = db.getMessagesBySession(session.id);
       return {
         ...session,
-        messageCount: messages.length
+        messageCount: messages.length,
       };
     });
-    res.json({ sessions: sessionsWithMessages });
+    res.json({ sessions: sessionsWithInfo });
   } catch (error: any) {
     console.error("[Sessions] Error:", error);
     res.status(500).json({ error: error?.message || "获取会话失败" });
@@ -100,7 +100,7 @@ app.get("/api/sessions", (req, res) => {
 app.get("/api/sessions/:sessionId", (req, res) => {
   try {
     const { sessionId } = req.params;
-    const session = db.getSession(sessionId);
+    const session = db.getSessionWithDive(sessionId);
 
     if (!session) {
       return res.status(404).json({ error: "会话不存在" });
@@ -132,6 +132,8 @@ app.post("/api/sessions", (req, res) => {
       title,
       model,
       sdk_session_id: null,
+      kind: 'chat',
+      latest_dive_id: null,
       created_at: now,
       updated_at: now
     });
@@ -176,6 +178,48 @@ app.delete("/api/sessions/:sessionId", (req, res) => {
   } catch (error: any) {
     console.error("[Delete Session] Error:", error);
     res.status(500).json({ error: error?.message || "删除会话失败" });
+  }
+});
+
+// 获取会话的消息
+app.get("/api/sessions/:sessionId/messages", (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const session = db.getSession(sessionId);
+    if (!session) {
+      return res.status(404).json({ error: "会话不存在" });
+    }
+    const messages = db.getMessagesBySession(sessionId);
+    const parsedMessages = messages.map(msg => ({
+      ...msg,
+      tool_calls: msg.tool_calls ? JSON.parse(msg.tool_calls) : null
+    }));
+    res.json({ messages: parsedMessages });
+  } catch (error: any) {
+    console.error("[Session Messages] Error:", error);
+    res.status(500).json({ error: error?.message || "获取消息失败" });
+  }
+});
+
+// 获取会话关联的 Dive
+app.get("/api/sessions/:sessionId/dive", (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const dive = db.getDiveBySessionId(sessionId);
+    if (!dive) {
+      return res.status(404).json({ error: "该会话没有关联的 Dive" });
+    }
+
+    const tasks = db.getAgentTasksByDive(dive.id);
+    const events = db.getAgentEventsByDive(dive.id);
+    const evidence = db.getEvidenceByDive(dive.id);
+    const reports = db.getAgentReportsByDive(dive.id);
+    const guide = db.getDiveGuideByDive(dive.id);
+
+    res.json({ dive, tasks, events, evidence, reports, guide });
+  } catch (error: any) {
+    console.error("[Session Dive] Error:", error);
+    res.status(500).json({ error: error?.message || "获取 Dive 失败" });
   }
 });
 
@@ -315,6 +359,8 @@ app.post("/api/chat", async (req, res) => {
       title: message.slice(0, 30) + (message.length > 30 ? '...' : ''),
       model: provider.model,
       sdk_session_id: null,
+      kind: 'chat',
+      latest_dive_id: null,
       created_at: now,
       updated_at: now
     });
@@ -329,7 +375,8 @@ app.post("/api/chat", async (req, res) => {
     content: message,
     model: null,
     created_at: now,
-    tool_calls: null
+    tool_calls: null,
+    metadata_json: null
   });
 
   // 设置 SSE 头
@@ -371,7 +418,8 @@ app.post("/api/chat", async (req, res) => {
       content: fullResponse,
       model: provider.model,
       created_at: new Date().toISOString(),
-      tool_calls: null
+      tool_calls: null,
+      metadata_json: null
     });
 
     // 更新会话标题（如果是第一条消息）
@@ -410,10 +458,39 @@ app.post("/api/dive", async (req, res) => {
     model: provider.model,
   };
 
+  // 创建 Session
+  const now = new Date().toISOString();
+  const sessionId = uuidv4();
+  db.createSession({
+    id: sessionId,
+    title: (topic ?? message).slice(0, 30) + ((topic ?? message).length > 30 ? '...' : ''),
+    model: provider.model,
+    sdk_session_id: null,
+    kind: 'dive',
+    latest_dive_id: null,
+    created_at: now,
+    updated_at: now,
+  });
+
+  // 保存用户消息
+  db.createMessage({
+    id: uuidv4(),
+    session_id: sessionId,
+    role: 'user',
+    content: message,
+    model: null,
+    created_at: now,
+    tool_calls: null,
+    metadata_json: null,
+  });
+
   // 设置 SSE 头
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
+
+  // 发送 init 事件，让前端知道 sessionId
+  res.write(`data: ${JSON.stringify({ type: "init", sessionId })}\n\n`);
 
   try {
     for await (const event of diveOrchestrate(
@@ -421,6 +498,7 @@ app.post("/api/dive", async (req, res) => {
       message,
       topic ?? "未知",
       (userLevel as UserLevel) ?? "unknown",
+      sessionId,
     )) {
       res.write(`data: ${JSON.stringify(event)}\n\n`);
     }
@@ -462,6 +540,66 @@ app.get("/api/dives/:diveId", (req, res) => {
   } catch (error: any) {
     console.error("[Dive] Error:", error);
     res.status(500).json({ error: error?.message || "获取 Dive 详情失败" });
+  }
+});
+
+// 获取 Dive 的事件
+app.get("/api/dives/:diveId/events", (req, res) => {
+  try {
+    const { diveId } = req.params;
+    const dive = db.getDive(diveId);
+    if (!dive) {
+      return res.status(404).json({ error: "Dive 不存在" });
+    }
+    const events = db.getAgentEventsByDive(diveId);
+    res.json({ events });
+  } catch (error: any) {
+    console.error("[Dive Events] Error:", error);
+    res.status(500).json({ error: error?.message || "获取事件失败" });
+  }
+});
+
+// 获取 Dive 的 Guide
+app.get("/api/dives/:diveId/guide", (req, res) => {
+  try {
+    const { diveId } = req.params;
+    const dive = db.getDive(diveId);
+    if (!dive) {
+      return res.status(404).json({ error: "Dive 不存在" });
+    }
+    const guide = db.getDiveGuideByDive(diveId);
+    if (!guide) {
+      return res.status(404).json({ error: "Guide 不存在" });
+    }
+    res.json({ guide });
+  } catch (error: any) {
+    console.error("[Dive Guide] Error:", error);
+    res.status(500).json({ error: error?.message || "获取 Guide 失败" });
+  }
+});
+
+// 获取 Dive 的 Map（从 guide_json 中提取 diveMap）
+app.get("/api/dives/:diveId/map", (req, res) => {
+  try {
+    const { diveId } = req.params;
+    const dive = db.getDive(diveId);
+    if (!dive) {
+      return res.status(404).json({ error: "Dive 不存在" });
+    }
+    const guide = db.getDiveGuideByDive(diveId);
+    if (!guide) {
+      return res.status(404).json({ error: "Guide 不存在" });
+    }
+    try {
+      const guideData = JSON.parse(guide.guide_json);
+      const diveMap = guideData.guide?.diveMap ?? guideData.diveMap ?? null;
+      res.json({ diveMap });
+    } catch {
+      res.json({ diveMap: null });
+    }
+  } catch (error: any) {
+    console.error("[Dive Map] Error:", error);
+    res.status(500).json({ error: error?.message || "获取 Map 失败" });
   }
 });
 

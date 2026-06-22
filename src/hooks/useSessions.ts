@@ -5,8 +5,25 @@ const STORAGE_KEYS = {
   sessionModels: 'sessionModels',
 };
 
+export interface SessionListItem {
+  id: string;
+  title: string;
+  model: string;
+  kind: string;
+  latest_dive_id: string | null;
+  dive?: {
+    id: string;
+    topic: string;
+    status: string;
+    domain_type: string;
+  };
+  messageCount: number;
+  createdAt: Date;
+}
+
 export function useSessions() {
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessionList, setSessionList] = useState<SessionListItem[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   
   // 每个会话的模型选择缓存
@@ -22,13 +39,30 @@ export function useSessions() {
   // 获取当前会话
   const currentSession = sessions.find(s => s.id === currentSessionId);
 
-  // 从 API 加载会话列表
+  // 从 API 加载会话列表（含 dive 信息）
   const fetchSessions = useCallback(async () => {
     try {
       const res = await fetch('/api/sessions');
       const data = await res.json();
       
       if (data.sessions) {
+        const list: SessionListItem[] = data.sessions.map((s: any) => ({
+          id: s.id,
+          title: s.title,
+          model: s.model,
+          kind: s.kind || 'chat',
+          latest_dive_id: s.latest_dive_id || null,
+          dive: s.dive ? {
+            id: s.dive.id,
+            topic: s.dive.topic,
+            status: s.dive.status,
+            domain_type: s.dive.domain_type,
+          } : undefined,
+          messageCount: s.messageCount || 0,
+          createdAt: new Date(s.created_at),
+        }));
+        setSessionList(list);
+
         const loadedSessions: Session[] = data.sessions.map((s: any) => ({
           id: s.id,
           title: s.title,
@@ -79,6 +113,7 @@ export function useSessions() {
         const filtered = prev.filter(s => s.id !== sessionId);
         return filtered;
       });
+      setSessionList(prev => prev.filter(s => s.id !== sessionId));
       
       // 返回需要导航到的位置
       const remaining = sessions.filter(s => s.id !== sessionId);
@@ -144,6 +179,7 @@ export function useSessions() {
   return {
     sessions,
     setSessions,
+    sessionList,
     currentSessionId,
     setCurrentSessionId,
     currentSession,
