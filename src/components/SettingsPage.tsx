@@ -80,7 +80,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
   };
 
   /** 保存配置 */
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!baseUrl.trim() || !apiKey.trim() || !model.trim()) {
       MessagePlugin.warning('请填写完整的 Provider 配置');
       return;
@@ -93,7 +93,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
         apiKey: apiKey.trim(),
         model: model.trim(),
       };
-      saveProvider(config);
+      await saveProvider(config);
       MessagePlugin.success('Provider 配置已保存');
       onClose();
     } catch (err: any) {

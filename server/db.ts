@@ -132,6 +132,27 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_dive_guides_dive_id ON dive_guides(dive_id);
 `);
 
+// ============= Provider Profiles 表 =============
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS provider_profiles (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    base_url TEXT NOT NULL,
+    api_key_encrypted TEXT NOT NULL,
+    model TEXT NOT NULL,
+    is_default INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+`);
+
 // 数据库迁移：添加 sdk_session_id 列（如果不存在）
 try {
   const tableInfo = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
@@ -377,6 +398,23 @@ export interface DbDiveGuide {
   created_at: string;
 }
 
+export interface DbProviderProfile {
+  id: string;
+  name: string;
+  base_url: string;
+  api_key_encrypted: string;
+  model: string;
+  is_default: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DbAppSetting {
+  key: string;
+  value_json: string;
+  updated_at: string;
+}
+
 // ---- Dive CRUD ----
 
 export function createDive(dive: DbDive): DbDive {
@@ -508,6 +546,98 @@ export function createDiveGuide(guide: DbDiveGuide): DbDiveGuide {
 
 export function getDiveGuideByDive(diveId: string): DbDiveGuide | undefined {
   return db.prepare('SELECT * FROM dive_guides WHERE dive_id = ? ORDER BY created_at DESC LIMIT 1').get(diveId) as DbDiveGuide | undefined;
+}
+
+// ---- Provider Profile CRUD ----
+
+export function getAllProviderProfiles(): DbProviderProfile[] {
+  return db.prepare('SELECT * FROM provider_profiles ORDER BY is_default DESC, created_at ASC').all() as DbProviderProfile[];
+}
+
+export function getProviderProfile(id: string): DbProviderProfile | undefined {
+  return db.prepare('SELECT * FROM provider_profiles WHERE id = ?').get(id) as DbProviderProfile | undefined;
+}
+
+export function getDefaultProviderProfile(): DbProviderProfile | undefined {
+  return db.prepare('SELECT * FROM provider_profiles WHERE is_default = 1 LIMIT 1').get() as DbProviderProfile | undefined;
+}
+
+export function createProviderProfile(profile: DbProviderProfile): DbProviderProfile {
+  const stmt = db.prepare(`
+    INSERT INTO provider_profiles (id, name, base_url, api_key_encrypted, model, is_default, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  stmt.run(profile.id, profile.name, profile.base_url, profile.api_key_encrypted, profile.model, profile.is_default, profile.created_at, profile.updated_at);
+  return profile;
+}
+
+export function updateProviderProfile(id: string, updates: Partial<Pick<DbProviderProfile, 'name' | 'base_url' | 'api_key_encrypted' | 'model' | 'is_default'>>): boolean {
+  const fields: string[] = [];
+  const values: any[] = [];
+
+  if (updates.name !== undefined) {
+    fields.push('name = ?');
+    values.push(updates.name);
+  }
+  if (updates.base_url !== undefined) {
+    fields.push('base_url = ?');
+    values.push(updates.base_url);
+  }
+  if (updates.api_key_encrypted !== undefined) {
+    fields.push('api_key_encrypted = ?');
+    values.push(updates.api_key_encrypted);
+  }
+  if (updates.model !== undefined) {
+    fields.push('model = ?');
+    values.push(updates.model);
+  }
+  if (updates.is_default !== undefined) {
+    fields.push('is_default = ?');
+    values.push(updates.is_default);
+  }
+
+  if (fields.length === 0) return false;
+
+  fields.push('updated_at = ?');
+  values.push(new Date().toISOString());
+  values.push(id);
+
+  const stmt = db.prepare(`UPDATE provider_profiles SET ${fields.join(', ')} WHERE id = ?`);
+  const result = stmt.run(...values);
+  return result.changes > 0;
+}
+
+export function deleteProviderProfile(id: string): boolean {
+  const stmt = db.prepare('DELETE FROM provider_profiles WHERE id = ?');
+  const result = stmt.run(id);
+  return result.changes > 0;
+}
+
+export function clearDefaultProviderProfiles(): void {
+  db.prepare('UPDATE provider_profiles SET is_default = 0 WHERE is_default = 1').run();
+}
+
+// ---- App Settings CRUD ----
+
+export function getAppSetting(key: string): DbAppSetting | undefined {
+  return db.prepare('SELECT * FROM app_settings WHERE key = ?').get(key) as DbAppSetting | undefined;
+}
+
+export function setAppSetting(key: string, valueJson: string): DbAppSetting {
+  const now = new Date().toISOString();
+  const stmt = db.prepare(`
+    INSERT INTO app_settings (key, value_json, updated_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+  `);
+  stmt.run(key, valueJson, now);
+  return { key, value_json: valueJson, updated_at: now };
+}
+
+export function deleteAppSetting(key: string): boolean {
+  const stmt = db.prepare('DELETE FROM app_settings WHERE key = ?');
+  const result = stmt.run(key);
+  return result.changes > 0;
 }
 
 export default db;

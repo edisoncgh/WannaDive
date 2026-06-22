@@ -14,6 +14,7 @@ import { webSearchAdapter } from "./tools/webSearch.js";
 import { urlReaderAdapter } from "./tools/urlReader.js";
 import { scraplingAdapter } from "./tools/scrapling.js";
 import { agentReachAdapter } from "./tools/agentReach.js";
+import { providerService } from "./services/providerService.js";
 
 // 注册工具适配器
 registerTool(webSearchAdapter);
@@ -175,6 +176,112 @@ app.delete("/api/sessions/:sessionId", (req, res) => {
   } catch (error: any) {
     console.error("[Delete Session] Error:", error);
     res.status(500).json({ error: error?.message || "删除会话失败" });
+  }
+});
+
+// ============= Provider Profiles API =============
+
+// 获取所有 Provider Profiles
+app.get("/api/settings/provider-profiles", (req, res) => {
+  try {
+    const profiles = providerService.getAll();
+    res.json({ profiles });
+  } catch (error: any) {
+    console.error("[ProviderProfiles] Error:", error);
+    res.status(500).json({ error: error?.message || "获取 Provider Profiles 失败" });
+  }
+});
+
+// 获取单个 Provider Profile
+app.get("/api/settings/provider-profiles/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const profile = providerService.getByIdWithKey(id);
+    if (!profile) {
+      return res.status(404).json({ error: "Provider Profile 不存在" });
+    }
+    res.json({ profile });
+  } catch (error: any) {
+    console.error("[ProviderProfiles] Error:", error);
+    res.status(500).json({ error: error?.message || "获取 Provider Profile 失败" });
+  }
+});
+
+// 创建 Provider Profile
+app.post("/api/settings/provider-profiles", (req, res) => {
+  try {
+    const { name, baseUrl, apiKey, model, isDefault } = req.body;
+
+    if (!name || !baseUrl || !apiKey || !model) {
+      return res.status(400).json({ error: "缺少必填字段: name, baseUrl, apiKey, model" });
+    }
+
+    const profile = providerService.create({ name, baseUrl, apiKey, model, isDefault });
+    res.json({ profile });
+  } catch (error: any) {
+    console.error("[ProviderProfiles] Error:", error);
+    res.status(500).json({ error: error?.message || "创建 Provider Profile 失败" });
+  }
+});
+
+// 更新 Provider Profile
+app.patch("/api/settings/provider-profiles/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, baseUrl, apiKey, model, isDefault } = req.body;
+
+    const profile = providerService.update(id, { name, baseUrl, apiKey, model, isDefault });
+    res.json({ profile });
+  } catch (error: any) {
+    console.error("[ProviderProfiles] Error:", error);
+    if (error.message === 'Provider profile not found') {
+      return res.status(404).json({ error: error.message });
+    }
+    res.status(500).json({ error: error?.message || "更新 Provider Profile 失败" });
+  }
+});
+
+// 删除 Provider Profile
+app.delete("/api/settings/provider-profiles/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    providerService.delete(id);
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("[ProviderProfiles] Error:", error);
+    if (error.message === 'Provider profile not found') {
+      return res.status(404).json({ error: error.message });
+    }
+    res.status(500).json({ error: error?.message || "删除 Provider Profile 失败" });
+  }
+});
+
+// 设置默认 Provider
+app.post("/api/settings/provider-profiles/:id/default", (req, res) => {
+  try {
+    const { id } = req.params;
+    providerService.setDefault(id);
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("[ProviderProfiles] Error:", error);
+    if (error.message === 'Provider profile not found') {
+      return res.status(404).json({ error: error.message });
+    }
+    res.status(500).json({ error: error?.message || "设置默认 Provider 失败" });
+  }
+});
+
+// 获取默认 Provider
+app.get("/api/settings/default-provider", (req, res) => {
+  try {
+    const profile = providerService.getDefaultWithKey();
+    if (!profile) {
+      return res.json({ profile: null });
+    }
+    res.json({ profile });
+  } catch (error: any) {
+    console.error("[DefaultProvider] Error:", error);
+    res.status(500).json({ error: error?.message || "获取默认 Provider 失败" });
   }
 });
 
