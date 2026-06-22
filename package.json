@@ -9,7 +9,8 @@
     "dev:clean": "node scripts/kill-port.mjs 1234 5173",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "server": "tsx server/index.ts"
+    "server": "tsx server/index.ts",
+    "doctor": "tsx scripts/doctor.ts"
   },
   "dependencies": {
     "@tdesign-react/aigc": "^0.1.0-alpha.1",
