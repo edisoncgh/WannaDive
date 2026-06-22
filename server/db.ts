@@ -191,6 +191,13 @@ try {
     db.exec("ALTER TABLE messages ADD COLUMN metadata_json TEXT");
     console.log("[DB] Added metadata_json column to messages table");
   }
+
+  // evidence_items 表添加 caveats_json
+  const evidenceInfo = db.prepare("PRAGMA table_info(evidence_items)").all() as Array<{ name: string }>;
+  if (!evidenceInfo.some(col => col.name === 'caveats_json')) {
+    db.exec("ALTER TABLE evidence_items ADD COLUMN caveats_json TEXT");
+    console.log("[DB] Added caveats_json column to evidence_items table");
+  }
 } catch (e) {
   // 忽略错误（列可能已存在）
 }

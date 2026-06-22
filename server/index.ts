@@ -9,11 +9,12 @@ import { orchestrate, AgentEvent } from "./orchestrator.js";
 import { diveOrchestrate } from "./diveOrchestrator.js";
 import { ProviderConfig } from "./llm.js";
 import type { UserLevel } from "./types/dive.js";
-import { registerTool } from "./tools/registry.js";
+import { registerTool, getAllTools } from "./tools/registry.js";
 import { webSearchAdapter } from "./tools/webSearch.js";
 import { urlReaderAdapter } from "./tools/urlReader.js";
 import { scraplingAdapter } from "./tools/scrapling.js";
 import { agentReachAdapter } from "./tools/agentReach.js";
+import { ToolRouter } from "./tools/toolRouter.js";
 import { providerService } from "./services/providerService.js";
 
 // 注册工具适配器
@@ -21,6 +22,13 @@ registerTool(webSearchAdapter);
 registerTool(urlReaderAdapter);
 registerTool(scraplingAdapter);
 registerTool(agentReachAdapter);
+
+// ToolRouter 实例
+const toolRouter = new ToolRouter();
+toolRouter.register(webSearchAdapter);
+toolRouter.register(urlReaderAdapter);
+toolRouter.register(scraplingAdapter);
+toolRouter.register(agentReachAdapter);
 
 const execAsync = promisify(exec);
 
@@ -36,6 +44,22 @@ app.use(express.json());
 // 健康检查
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+// 工具列表
+app.get("/api/tools", (req, res) => {
+  const tools = toolRouter.getAdapterInfoList();
+  res.json({ tools });
+});
+
+// 工具健康检查
+app.get("/api/tools/health", async (req, res) => {
+  try {
+    const health = await toolRouter.healthCheckAll();
+    res.json({ tools: health });
+  } catch (err) {
+    res.status(500).json({ error: "工具健康检查失败" });
+  }
 });
 
 // 获取可用模型列表
