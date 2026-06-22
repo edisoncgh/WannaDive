@@ -48,8 +48,8 @@ export async function search(
       try {
         const r = await tool.search(query, options);
         results.push(...r);
-      } catch (err) {
-        console.error(`[ToolRegistry] search failed on ${tool.name}:`, err);
+      } catch {
+        // 静默降级，跳过不可用的工具
       }
     }
   }
@@ -78,8 +78,8 @@ export async function readUrl(
     if (tool.read) {
       try {
         return await tool.read(url, options);
-      } catch (err) {
-        console.error(`[ToolRegistry] read failed on ${tool.name}:`, err);
+      } catch {
+        // 静默降级，尝试下一个工具
       }
     }
   }
