@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { Card, Loading, Progress } from 'tdesign-react';
-import { AgentTaskState, DiveState } from '../hooks/useDive';
+import { AgentTaskState, AgentRunStepState, DiveState } from '../hooks/useDive';
 
 // ============================================================
 // Agent Mission Board — 展示 Dive Session 中所有 Agent 的工作状态
@@ -41,15 +42,90 @@ const STATUS_COLORS: Record<string, string> = {
   failed: 'var(--td-error-color)',
 };
 
+const STEP_TYPE_ICONS: Record<string, string> = {
+  assigned: '📌',
+  planning: '📋',
+  tool_selected: '🔧',
+  tool_running: '⚡',
+  source_found: '🔗',
+  finding_added: '💡',
+  brief_submitted: '📝',
+  reviewed: '✅',
+  failed: '❌',
+  skipped: '⏭️',
+};
+
+const STEP_STATUS_STYLES: Record<string, { color: string; bg: string }> = {
+  running: { color: '#0ea5e9', bg: '#0ea5e915' },
+  completed: { color: '#22c55e', bg: '#22c55e15' },
+  failed: { color: 'var(--td-error-color)', bg: 'var(--td-error-color-10)' },
+  skipped: { color: 'var(--td-text-color-placeholder)', bg: 'var(--td-bg-color-secondarycontainer)' },
+};
+
+// ============================================================
+// Step 列表组件
+// ============================================================
+
+interface StepListProps {
+  steps: AgentRunStepState[];
+}
+
+function StepList({ steps }: StepListProps) {
+  if (steps.length === 0) {
+    return (
+      <div className="text-xs px-2 py-2" style={{ color: 'var(--td-text-color-placeholder)' }}>
+        暂无执行步骤
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      {steps.map((step) => {
+        const icon = STEP_TYPE_ICONS[step.stepType] || '▪️';
+        const style = STEP_STATUS_STYLES[step.status] ?? STEP_STATUS_STYLES.running;
+
+        return (
+          <div
+            key={step.id}
+            className="flex items-start gap-2 text-xs px-2 py-1.5 rounded"
+            style={{ backgroundColor: style.bg }}
+          >
+            <span className="flex-shrink-0 mt-0.5">{icon}</span>
+            <div className="flex flex-col min-w-0">
+              <span style={{ color: style.color }}>{step.title}</span>
+              {step.description && (
+                <span
+                  className="truncate"
+                  style={{ color: 'var(--td-text-color-placeholder)', maxWidth: 260 }}
+                  title={step.description}
+                >
+                  {step.description.length > 60 ? step.description.slice(0, 60) + '...' : step.description}
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============================================================
+// Agent Mission Card — 可展开
+// ============================================================
+
 interface AgentMissionCardProps {
   task: AgentTaskState;
 }
 
 function AgentMissionCard({ task }: AgentMissionCardProps) {
+  const [expanded, setExpanded] = useState(false);
   const icon = AGENT_ICONS[task.agentId] || '🤖';
   const statusLabel = STATUS_LABELS[task.status] ?? task.status;
   const statusColor = STATUS_COLORS[task.status] ?? 'var(--td-text-color-secondary)';
   const isActive = !['completed', 'failed'].includes(task.status);
+  const hasSteps = task.steps.length > 0;
 
   return (
     <Card
@@ -64,8 +140,12 @@ function AgentMissionCard({ task }: AgentMissionCardProps) {
           : '0 1px 3px rgba(0,0,0,0.05)',
       }}
     >
-      {/* 头部 */}
-      <div className="flex items-center justify-between">
+      {/* 头部 — 点击展开 */}
+      <div
+        className="flex items-center justify-between"
+        style={{ cursor: hasSteps ? 'pointer' : 'default' }}
+        onClick={() => hasSteps && setExpanded(!expanded)}
+      >
         <div className="flex items-center gap-2">
           <span
             className="flex items-center justify-center rounded-md text-sm"
@@ -91,6 +171,11 @@ function AgentMissionCard({ task }: AgentMissionCardProps) {
             >
               {isActive && <Loading size="small" style={{ marginRight: 4 }} />}
               {statusLabel}
+              {hasSteps && (
+                <span style={{ marginLeft: 6, color: 'var(--td-text-color-placeholder)' }}>
+                  {expanded ? '▾' : '▸'} {task.steps.length} 步
+                </span>
+              )}
             </span>
           </div>
         </div>
@@ -134,6 +219,16 @@ function AgentMissionCard({ task }: AgentMissionCardProps) {
               💡 {note.length > 100 ? note.slice(0, 100) + '...' : note}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* 展开的步骤列表 */}
+      {expanded && hasSteps && (
+        <div
+          className="mt-2 pt-2"
+          style={{ borderTop: '1px solid var(--td-border-level-1-color)' }}
+        >
+          <StepList steps={task.steps} />
         </div>
       )}
     </Card>

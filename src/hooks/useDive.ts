@@ -12,6 +12,8 @@ export type DiveAgentEvent =
   | { type: 'host_question'; diveId: string; questions: string[] }
   | { type: 'plan_created'; diveId: string; plan: DivePlan }
   | { type: 'agent_started'; diveId: string; taskId: string; agentId: string; title: string }
+  | { type: 'agent_step_started'; diveId: string; taskId: string; step: { id: string; step_type: string; title: string; description: string | null; status: string; created_at: string } }
+  | { type: 'agent_step_updated'; diveId: string; taskId: string; stepId: string; status: string; description?: string }
   | { type: 'agent_status'; diveId: string; taskId: string; status: string; message: string; progress?: number }
   | { type: 'source_found'; diveId: string; taskId: string; source: EvidenceItem }
   | { type: 'note_added'; diveId: string; taskId: string; note: string }
@@ -61,6 +63,16 @@ export interface AgentTaskState {
   message: string;
   progress: number;
   notes: string[];
+  steps: AgentRunStepState[];
+}
+
+export interface AgentRunStepState {
+  id: string;
+  stepType: string;
+  title: string;
+  description: string | null;
+  status: 'running' | 'completed' | 'failed' | 'skipped';
+  createdAt: string;
 }
 
 export interface DiveState {
@@ -243,6 +255,7 @@ export function useDive() {
             message: '准备中...',
             progress: 0,
             notes: [],
+            steps: [],
           });
           next.agents = agents;
           break;
@@ -257,6 +270,43 @@ export function useDive() {
               status: event.status as AgentTaskState['status'],
               message: event.message,
               progress: event.progress ?? existing.progress,
+            });
+          }
+          next.agents = agents;
+          break;
+        }
+
+        case 'agent_step_started': {
+          const agents = new Map(next.agents);
+          const existing = agents.get(event.taskId);
+          if (existing) {
+            agents.set(event.taskId, {
+              ...existing,
+              steps: [...existing.steps, {
+                id: event.step.id,
+                stepType: event.step.step_type,
+                title: event.step.title,
+                description: event.step.description,
+                status: event.step.status as AgentRunStepState['status'],
+                createdAt: event.step.created_at,
+              }],
+            });
+          }
+          next.agents = agents;
+          break;
+        }
+
+        case 'agent_step_updated': {
+          const agents = new Map(next.agents);
+          const existing = agents.get(event.taskId);
+          if (existing) {
+            agents.set(event.taskId, {
+              ...existing,
+              steps: existing.steps.map(s =>
+                s.id === event.stepId
+                  ? { ...s, status: event.status as AgentRunStepState['status'], description: event.description ?? s.description }
+                  : s
+              ),
             });
           }
           next.agents = agents;
@@ -348,12 +398,27 @@ export function useDive() {
       if (!res.ok) return false;
 
       const data = await res.json();
-      const { dive, tasks, guide } = data;
+      const { dive, tasks, guide, steps } = data;
       if (!dive) return false;
 
       const agents = new Map<string, AgentTaskState>();
+      const stepsByTask = new Map<string, typeof steps>();
+      for (const s of steps ?? []) {
+        const arr = stepsByTask.get(s.task_id) ?? [];
+        arr.push(s);
+        stepsByTask.set(s.task_id, arr);
+      }
+
       for (const t of tasks ?? []) {
         const isCompleted = t.status === 'completed';
+        const taskSteps = (stepsByTask.get(t.id) ?? []).map((s: any) => ({
+          id: s.id,
+          stepType: s.step_type,
+          title: s.title,
+          description: s.description,
+          status: s.status as AgentRunStepState['status'],
+          createdAt: s.created_at,
+        }));
         agents.set(t.id, {
           taskId: t.id,
           agentId: t.agent_id,
@@ -362,6 +427,7 @@ export function useDive() {
           message: isCompleted ? '报告完成' : '',
           progress: isCompleted ? 100 : (t.progress ?? 0),
           notes: [],
+          steps: taskSteps,
         });
       }
 

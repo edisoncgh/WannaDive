@@ -125,6 +125,22 @@ db.exec(`
     FOREIGN KEY (dive_id) REFERENCES dives(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS agent_run_steps (
+    id TEXT PRIMARY KEY,
+    dive_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    step_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    status TEXT NOT NULL,
+    payload_json TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (dive_id) REFERENCES dives(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_agent_run_steps_dive_id ON agent_run_steps(dive_id);
+  CREATE INDEX IF NOT EXISTS idx_agent_run_steps_task_id ON agent_run_steps(task_id);
   CREATE INDEX IF NOT EXISTS idx_agent_tasks_dive_id ON agent_tasks(dive_id);
   CREATE INDEX IF NOT EXISTS idx_agent_events_dive_id ON agent_events(dive_id);
   CREATE INDEX IF NOT EXISTS idx_evidence_items_dive_id ON evidence_items(dive_id);
@@ -448,6 +464,19 @@ export interface DbDiveGuide {
   created_at: string;
 }
 
+export interface DbAgentRunStep {
+  id: string;
+  dive_id: string;
+  task_id: string;
+  step_type: string;
+  title: string;
+  description: string | null;
+  status: string;
+  payload_json: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface DbProviderProfile {
   id: string;
   name: string;
@@ -596,6 +625,35 @@ export function createDiveGuide(guide: DbDiveGuide): DbDiveGuide {
 
 export function getDiveGuideByDive(diveId: string): DbDiveGuide | undefined {
   return db.prepare('SELECT * FROM dive_guides WHERE dive_id = ? ORDER BY created_at DESC LIMIT 1').get(diveId) as DbDiveGuide | undefined;
+}
+
+// ---- Agent Run Step CRUD ----
+
+export function createAgentRunStep(step: DbAgentRunStep): DbAgentRunStep {
+  const stmt = db.prepare(`
+    INSERT INTO agent_run_steps (id, dive_id, task_id, step_type, title, description, status, payload_json, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  stmt.run(step.id, step.dive_id, step.task_id, step.step_type, step.title, step.description, step.status, step.payload_json, step.created_at, step.updated_at);
+  return step;
+}
+
+export function updateAgentRunStepStatus(id: string, status: string, description?: string): boolean {
+  const now = new Date().toISOString();
+  if (description !== undefined) {
+    const result = db.prepare('UPDATE agent_run_steps SET status = ?, description = ?, updated_at = ? WHERE id = ?').run(status, description, now, id);
+    return result.changes > 0;
+  }
+  const result = db.prepare('UPDATE agent_run_steps SET status = ?, updated_at = ? WHERE id = ?').run(status, now, id);
+  return result.changes > 0;
+}
+
+export function getAgentRunStepsByDive(diveId: string): DbAgentRunStep[] {
+  return db.prepare('SELECT * FROM agent_run_steps WHERE dive_id = ? ORDER BY created_at ASC').all(diveId) as DbAgentRunStep[];
+}
+
+export function getAgentRunStepsByTask(taskId: string): DbAgentRunStep[] {
+  return db.prepare('SELECT * FROM agent_run_steps WHERE task_id = ? ORDER BY created_at ASC').all(taskId) as DbAgentRunStep[];
 }
 
 // ---- Provider Profile CRUD ----

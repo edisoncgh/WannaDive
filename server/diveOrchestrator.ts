@@ -38,11 +38,13 @@ import type {
   UserLevel,
   AgentTaskStatus,
   CriticScore,
+  AgentRunStep,
 } from "./types/dive.js";
 import * as db from "./db.js";
 import { classifyDomain } from "./domainRouter.js";
 import { getPlaybook } from "./playbooks/index.js";
 import { search, readUrl } from "./tools/registry.js";
+import { missionBoardService } from "./services/missionBoardService.js";
 
 // ============================================================
 // 子 Agent 注册表
@@ -174,6 +176,13 @@ export async function* diveOrchestrate(
             status: status as AgentTaskStatus,
             message,
             progress,
+          });
+        }, (step) => {
+          statusQueue.push({
+            type: "agent_step_started",
+            diveId,
+            taskId: task.id,
+            step,
           });
         }),
       );
@@ -489,6 +498,7 @@ async function executeDiveSubAgent(
   task: db.DbAgentTask,
   toolCall: ToolCall,
   onStatus?: (status: string, message: string, progress?: number) => void,
+  onStep?: (step: AgentRunStep) => void,
 ): Promise<{ agentId: string; content: string }> {
   const agentDef = SUB_AGENT_REGISTRY[toolCall.function.name];
   if (agentDef === undefined) {
@@ -501,15 +511,37 @@ async function executeDiveSubAgent(
   const level = typeof args.level === "string" ? args.level : "一般了解";
   const budget = typeof args.budget === "string" ? args.budget : undefined;
 
+  // ---- 记录 assigned 步骤 ----
+  const assignedStep = missionBoardService.addStep({
+    diveId,
+    taskId: task.id,
+    stepType: 'assigned',
+    title: `分配给 ${AGENT_TITLES[task.agent_id] ?? task.agent_id}`,
+    description: `主题：${topic}，水平：${level}`,
+    status: 'completed',
+  });
+  onStep?.(assignedStep);
+
   // ---- 用工具搜集外部信息 ----
   let externalContext = "";
   try {
     onStatus?.("searching", "正在搜索外部信息...", 15);
+    const searchStep = missionBoardService.addStep({
+      diveId,
+      taskId: task.id,
+      stepType: 'tool_running',
+      title: '搜索外部信息',
+      description: `搜索：${topic} 入门 教程 推荐`,
+      status: 'running',
+    });
+    onStep?.(searchStep);
+
     const searchQuery = `${topic} 入门 教程 推荐`;
     const searchResults = await search(searchQuery, { limit: 3 });
 
     if (searchResults.length > 0) {
       onStatus?.("reading", `找到 ${searchResults.length} 条结果，提取中...`, 30);
+      missionBoardService.updateStepStatus(searchStep.id, 'completed', `找到 ${searchResults.length} 条结果`);
 
       // 保存到 Evidence Store
       for (const sr of searchResults) {
@@ -530,6 +562,17 @@ async function executeDiveSubAgent(
           credibility_score: null,
           relevance_score: null,
         });
+
+        const sourceStep = missionBoardService.addStep({
+          diveId,
+          taskId: task.id,
+          stepType: 'source_found',
+          title: `发现来源：${sr.title.slice(0, 40)}`,
+          description: sr.url,
+          status: 'completed',
+          payload: { url: sr.url, title: sr.title },
+        });
+        onStep?.(sourceStep);
       }
 
       externalContext = "\n\n【外部搜索参考】\n" +
@@ -548,16 +591,34 @@ async function executeDiveSubAgent(
       }
     } else {
       onStatus?.("searching", "外部搜索无结果，使用 LLM 知识", 30);
+      missionBoardService.updateStepStatus(searchStep.id, 'completed', '无搜索结果');
     }
   } catch (err) {
     console.error(`[DiveOrchestrator] 工具搜索失败 (${task.agent_id}):`, err);
     onStatus?.("searching", "外部搜索不可用，使用 LLM 知识", 30);
+    missionBoardService.addStep({
+      diveId,
+      taskId: task.id,
+      stepType: 'failed',
+      title: '搜索失败',
+      description: '外部搜索不可用',
+      status: 'failed',
+    });
   }
 
   // 构建 user message（含外部信息）
   const userContent = buildSubAgentUserMessage(topic, level, budget) + externalContext;
 
   onStatus?.("reporting", "正在生成报告...", 60);
+  const briefStep = missionBoardService.addStep({
+    diveId,
+    taskId: task.id,
+    stepType: 'brief_submitted',
+    title: '生成报告',
+    description: `${AGENT_TITLES[task.agent_id] ?? task.agent_id} 正在撰写报告`,
+    status: 'running',
+  });
+  onStep?.(briefStep);
 
   const messages: LLMMessage[] = [
     { role: "system", content: agentDef.systemPrompt },
@@ -565,6 +626,7 @@ async function executeDiveSubAgent(
   ];
 
   const response = await callLLM(config, messages);
+  missionBoardService.updateStepStatus(briefStep.id, 'completed', '报告生成完成');
 
   return {
     agentId: agentDef.id,

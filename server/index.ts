@@ -239,8 +239,9 @@ app.get("/api/sessions/:sessionId/dive", (req, res) => {
     const evidence = db.getEvidenceByDive(dive.id);
     const reports = db.getAgentReportsByDive(dive.id);
     const guide = db.getDiveGuideByDive(dive.id);
+    const steps = db.getAgentRunStepsByDive(dive.id);
 
-    res.json({ dive, tasks, events, evidence, reports, guide });
+    res.json({ dive, tasks, events, evidence, reports, guide, steps });
   } catch (error: any) {
     console.error("[Session Dive] Error:", error);
     res.status(500).json({ error: error?.message || "获取 Dive 失败" });

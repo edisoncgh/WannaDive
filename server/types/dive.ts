@@ -73,6 +73,35 @@ export type AgentTaskStatus =
   | "failed";
 
 // ============================================================
+// Agent Run Step（Agent 执行步骤）
+// ============================================================
+
+export type AgentRunStepType =
+  | 'assigned'
+  | 'planning'
+  | 'tool_selected'
+  | 'tool_running'
+  | 'source_found'
+  | 'finding_added'
+  | 'brief_submitted'
+  | 'reviewed'
+  | 'failed'
+  | 'skipped';
+
+export interface AgentRunStep {
+  id: string;
+  dive_id: string;
+  task_id: string;
+  step_type: AgentRunStepType;
+  title: string;
+  description: string | null;
+  status: 'running' | 'completed' | 'failed' | 'skipped';
+  payload_json: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ============================================================
 // Agent Event（结构化 SSE 事件）
 // ============================================================
 
@@ -81,6 +110,8 @@ export type DiveAgentEvent =
   | { type: "host_question"; diveId: string; questions: string[] }
   | { type: "plan_created"; diveId: string; plan: DivePlan }
   | { type: "agent_started"; diveId: string; taskId: string; agentId: string; title: string }
+  | { type: "agent_step_started"; diveId: string; taskId: string; step: AgentRunStep }
+  | { type: "agent_step_updated"; diveId: string; taskId: string; stepId: string; status: string; description?: string }
   | { type: "agent_status"; diveId: string; taskId: string; status: AgentTaskStatus; message: string; progress?: number }
   | { type: "source_found"; diveId: string; taskId: string; source: EvidenceItem }
   | { type: "note_added"; diveId: string; taskId: string; note: string }
