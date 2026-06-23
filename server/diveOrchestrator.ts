@@ -526,17 +526,16 @@ async function executeDiveSubAgent(
   let externalContext = "";
   try {
     onStatus?.("searching", "正在搜索外部信息...", 15);
+    const searchQuery = buildAgentSearchQuery(task.agent_id, topic, level);
     const searchStep = missionBoardService.addStep({
       diveId,
       taskId: task.id,
       stepType: 'tool_running',
       title: '搜索外部信息',
-      description: `搜索：${topic} 入门 教程 推荐`,
+      description: `搜索：${searchQuery}`,
       status: 'running',
     });
     onStep?.(searchStep);
-
-    const searchQuery = `${topic} 入门 教程 推荐`;
     const searchResults = await search(searchQuery, { limit: 3 });
 
     if (searchResults.length > 0) {
@@ -649,6 +648,17 @@ function buildSubAgentUserMessage(
   lines.push("");
   lines.push("请根据以上信息，按照你的职责输出 markdown 报告。");
   return lines.join("\n");
+}
+
+function buildAgentSearchQuery(agentId: string, topic: string, level: string): string {
+  const queries: Record<string, string> = {
+    concept: `${topic} 核心概念 术语 入门解释`,
+    vertical: `${topic} 圈子 社区 黑话 争议 讨论`,
+    market: `${topic} 价格 品牌 推荐 性价比 避坑`,
+    insider: `${topic} 内行 真实经验 老手建议`,
+    misconception: `${topic} 新手误区 常见错误 踩坑`,
+  };
+  return queries[agentId] ?? `${topic} 入门 教程 推荐`;
 }
 
 function parseToolArguments(toolCall: ToolCall): Record<string, unknown> {

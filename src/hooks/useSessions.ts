@@ -150,6 +150,16 @@ export function useSessions() {
   const addSession = useCallback((session: Session) => {
     setSessions(prev => [session, ...prev]);
     setCurrentSessionId(session.id);
+    // 同步更新 sessionList
+    setSessionList(prev => [{
+      id: session.id,
+      title: session.title,
+      model: session.model,
+      kind: 'chat',
+      latest_dive_id: null,
+      messageCount: 0,
+      createdAt: session.createdAt || new Date(),
+    }, ...prev]);
   }, []);
 
   // 更新会话

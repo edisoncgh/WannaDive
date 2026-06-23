@@ -48,11 +48,23 @@ const LEVEL_MAP: Record<KnowledgeLevel, string> = {
  */
 function buildFirstMessage(topic: string, level: KnowledgeLevel): string {
   const safeTopic = (topic || '').trim() || '（用户还没填）';
+  const levelText = KNOWLEDGE_LEVEL_TEXT[level];
+
+  // 纯小白：直接调度，不需要澄清
+  if (level === 'novice') {
+    return `【入坑任务】我想入坑：**${safeTopic}**
+
+我对这个东西的了解程度：${levelText}（完全没接触过）
+
+请直接调度子 Agent 收集信息，最后给我一份"入坑指南"。`;
+  }
+
+  // 有点基础：让 Host Agent 先澄清一下用户的具体水平和目标
   return `【入坑任务】我想入坑：**${safeTopic}**
 
-我对这个东西的了解程度：${KNOWLEDGE_LEVEL_TEXT[level]}
+我对这个东西的了解程度：${levelText}
 
-上面的信息已经足够，请直接调度 concept-agent、vertical-agent、market-agent 三个子 Agent 收集信息，最后给我一份"入坑指南"。不需要再询问了解程度等已知信息。`;
+请注意：我不是纯小白，已经有一定基础。请先问我 1-2 个问题，了解我具体知道什么、想深入到什么程度，然后再调度子 Agent 给我一份更有针对性的"入坑指南"。`;
 }
 
 export function ChatPage({

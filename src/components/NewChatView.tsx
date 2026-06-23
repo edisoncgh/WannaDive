@@ -149,7 +149,7 @@ export function NewChatView({
               {canStart ? '开始入坑' : '请先填写入坑对象'}
             </Button>
             <p className="text-center text-xs mt-3" style={{ color: 'var(--td-text-color-placeholder)' }}>
-              点击后，主持 Agent 会先和你确认需求，然后调度 3 个子 Agent 一起工作
+              点击后，主持 Agent 会根据你的了解程度，调度专家团队一起工作
             </p>
           </div>
         )}
